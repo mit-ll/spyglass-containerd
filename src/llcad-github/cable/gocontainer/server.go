@@ -6,6 +6,8 @@ import (
   "github.com/gorilla/mux"
   "log"
   "net/http"
+  _ "github.com/lib/pq"
+  "database/sql"
 )
 
 // Container is what we use to store values from JSON request to create a new
@@ -13,6 +15,7 @@ import (
 type Container struct {
   DbKeyId int
   DbUserId int
+  sshKey string
 }
 
 func main() {
@@ -24,7 +27,7 @@ func main() {
   http.Handle("/", rtr)
 
   log.Println("Listening...")
-  http.ListenAndServe(":3000", nil)
+  http.ListenAndServe(":5000", nil)
 }
 
 func Welcome(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +47,23 @@ func CreateContainer(w http.ResponseWriter, r *http.Request) {
     var newContainer Container
     jsonInputReturn := json.Unmarshal(p, &newContainer)
     if jsonInputReturn == nil {
-      fmt.Println(newContainer)
+      log.Printf("Container is ?", newContainer)
+
+      // we need to get all pgsql'y up in here
+      db, err := sql.Open("postgres", 
+                          "user=pa20690 dbname=pa20690 sslmode=disable")
+      if err != nil {
+        log.Fatal(err)
+      }
+      log.Print("Connected DB")
+      log.Printf("Querying for Key ID ", newContainer.DbKeyId)
+      row := db.QueryRow("SELECT sshkey FROM keys WHERE id = $1", 
+                         newContainer.DbKeyId)
+      err = row.Scan(&newContainer.sshKey)
+      if err != nil {
+        log.Fatal(err)
+      }
+      log.Printf("Key is ?", newContainer.sshKey)
     } else {
       fmt.Println("unable to unmarshall the JSON", jsonInputReturn)
     }
