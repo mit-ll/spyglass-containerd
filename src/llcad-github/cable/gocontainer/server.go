@@ -16,6 +16,8 @@ type Container struct {
   DbKeyId int
   DbUserId int
   sshKey string
+  sshUser string
+  dockerId string
 }
 
 func main() {
@@ -64,6 +66,14 @@ func CreateContainer(w http.ResponseWriter, r *http.Request) {
         log.Fatal(err)
       }
       log.Printf("Key is ?", newContainer.sshKey)
+      log.Printf("Querying for Username ", newContainer.DbUserId)
+      row = db.QueryRow("SELECT login FROM users WHERE id = $1",
+                         newContainer.DbUserId)
+      err = row.Scan(&newContainer.sshUser)
+      if err != nil {
+        log.Fatal(err)
+      }
+      log.Printf("User is ?", newContainer.sshUser)
     } else {
       fmt.Println("unable to unmarshall the JSON", jsonInputReturn)
     }
