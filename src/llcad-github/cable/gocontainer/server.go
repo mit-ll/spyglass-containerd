@@ -8,8 +8,9 @@ import (
   "log"
   "time"
   "net/http"
-  _ "github.com/lib/pq"
+  "os"
   "database/sql"
+  _ "github.com/go-sql-driver/mysql"
 )
 
 // Container is what we use to store values from JSON request to create a new
@@ -23,11 +24,44 @@ type Container struct {
   DockerId string
 }
 
+// So we don't have to store database config in the host
+type Config struct {
+  DataHost string
+  DataPort int
+  DataUser string
+  DataPass string
+  DataBase string
+}
+
+var config Config
+
+// Handling of Docker event callbacks
 func eventCallback(event *dockerclient.Event, args ...interface{}) {
     log.Printf("Received event: %#v\n", *event)
 }
 
 func main() {
+  // Ensure the config file is there.
+  configfile := os.Args[1]
+  if len(configfile) == 0 {
+    fmt.Printf("A configuration file was not specified as the first argument.\n")
+    os.Exit(1)
+  }
+
+  if _, err := os.Stat(configfile); os.IsNotExist(err) {
+    fmt.Printf("Configuration file does not exist: %s\n", configfile)
+    os.Exit(1)
+  }
+
+  file, _ := os.Open(os.Args[1])
+  decoder := json.NewDecoder(file)
+  config = Config{}
+  err := decoder.Decode(&config)
+  if err != nil {
+    fmt.Println("Error decoding Config JSON: ", err)
+  }
+
+  // Init Gorilla MUX
   rtr := mux.NewRouter()
   rtr.HandleFunc("/", Welcome).Methods("GET")
   rtr.HandleFunc("/new", CreateContainer).Methods("POST")
@@ -62,9 +96,13 @@ func CreateContainer(w http.ResponseWriter, r *http.Request) {
       // New Container
       log.Printf("Container is ?", newContainer)
 
-      // Open PostgreSQL database
-      db, err := sql.Open("postgres", 
-                          "user=koguchi dbname=koguchi password=va8aegoo8ceeXiew7weu6poh0 sslmode=disable")
+      // Open SQL database
+
+      database := "%s:%s@tcp(%s:%d)/%s"
+      dataString := fmt.Sprintf(database, config.DataUser, 
+        config.DataPass, config.DataHost, config.DataPort, config.DataBase)
+
+      db, err := sql.Open("mysql", dataString)
       if err != nil {
         log.Fatal(err)
       }
@@ -72,8 +110,8 @@ func CreateContainer(w http.ResponseWriter, r *http.Request) {
       
       // Query for Key
       log.Printf("Querying for Key ID ", newContainer.DbKeyId)
-      row := db.QueryRow("SELECT sshkey FROM keys WHERE id = $1", 
-                         newContainer.DbKeyId)
+      keyQuery := fmt.Sprintf("SELECT sshkey FROM %s.keys WHERE id=?", config.DataBase)
+      row := db.QueryRow(keyQuery, newContainer.DbKeyId)
       err = row.Scan(&newContainer.SshKey)
       if err != nil {
         log.Fatal(err)
@@ -82,8 +120,8 @@ func CreateContainer(w http.ResponseWriter, r *http.Request) {
 
       // Query for Username
       log.Printf("Querying for Username ", newContainer.DbUserId)
-      row = db.QueryRow("SELECT login FROM users WHERE id = $1",
-                         newContainer.DbUserId)
+      userQuery := fmt.Sprintf("SELECT login FROM %s.users WHERE id=?", config.DataBase)
+      row = db.QueryRow(userQuery, newContainer.DbUserId)
       err = row.Scan(&newContainer.SshUser)
       if err != nil {
         log.Fatal(err)
@@ -126,6 +164,7 @@ func CreateContainer(w http.ResponseWriter, r *http.Request) {
       // Return the docker container info
       webOutput, err := json.Marshal(newContainer)
       fmt.Fprintf(w, string(webOutput))
+      fmt.Println(string(webOutput))
       log.Printf("Return to webapp took ?, total process was ?", time.Since(timerReturn), time.Since(timerTotal))
 
     } else {
