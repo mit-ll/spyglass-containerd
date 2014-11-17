@@ -1,3 +1,7 @@
+// Container Daemon - Used to facilitate container creation.
+// Copyright (c) 2014, Massachusetts Institute of Technology
+// Please see LICENSE.md for licensing information.
+
 package main
 
 import (
