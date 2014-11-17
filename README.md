@@ -12,7 +12,7 @@ sysvinit)
 
 Simply: `containerd /path/to/containerd.conf`
 
-What does `containerd.conf` look like? It looks like:
+`containerd.conf` is a simple JSON-based config file:
 ```
 {
 	"DataHost": "10.10.10.10",
