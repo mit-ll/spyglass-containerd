@@ -15,6 +15,7 @@ import (
   "os"
   "database/sql"
   _ "github.com/go-sql-driver/mysql"
+  "github.com/Pallinder/go-randomdata"
 )
 
 // Container is what we use to store values from JSON request to create a new
@@ -40,7 +41,7 @@ type Config struct {
 var config Config
 
 // Handling of Docker event callbacks
-func eventCallback(event *dockerclient.Event, args ...interface{}) {
+func eventCallback(event *dockerclient.Event, ec chan error, args ...interface{}) {
     log.Printf("Received event: %#v\n", *event)
 }
 
@@ -87,119 +88,115 @@ func CreateContainer(w http.ResponseWriter, r *http.Request) {
   p := make([]byte, r.ContentLength)
 
   // Read into p the http body
-  _, httpReadReturn := r.Body.Read(p)
+  r.Body.Read(p)
 
-  if httpReadReturn == nil {
-    // Create a variable for our new container info, unmarshall
-    var newContainer Container
-    jsonInputReturn := json.Unmarshal(p, &newContainer)
-    if jsonInputReturn == nil {
-      timerSetup := time.Now()
-      timerTotal := time.Now()
+  // Create a variable for our new container info, unmarshall
+  var newContainer Container
+  jsonInputReturn := json.Unmarshal(p, &newContainer)
+  if jsonInputReturn == nil {
+    timerSetup := time.Now()
+    timerTotal := time.Now()
 
-      // New Container
-      log.Printf("Container is ?", newContainer)
+    // New Container
+    log.Printf("Container is ?", newContainer)
 
-      // Open SQL database
+    // Open SQL database
 
-      database := "%s:%s@tcp(%s:%d)/%s"
-      dataString := fmt.Sprintf(database, config.DataUser, 
-        config.DataPass, config.DataHost, config.DataPort, config.DataBase)
+    database := "%s:%s@tcp(%s:%d)/%s"
+    dataString := fmt.Sprintf(database, config.DataUser, 
+      config.DataPass, config.DataHost, config.DataPort, config.DataBase)
 
-      db, err := sql.Open("mysql", dataString)
-      if err != nil {
-        log.Fatal(err)
-      }
-      log.Print("Connected DB")
-      
-      // Query for Key
-      log.Printf("Querying for Key ID ", newContainer.DbKeyId)
-      keyQuery := fmt.Sprintf("SELECT sshkey FROM %s.keys WHERE id=?", config.DataBase)
-      row := db.QueryRow(keyQuery, newContainer.DbKeyId)
-      err = row.Scan(&newContainer.SshKey)
-      if err != nil {
-        log.Fatal(err)
-      }
-      log.Printf("Key is ?", newContainer.SshKey)
-
-      // Query for Username
-      log.Printf("Querying for Username ", newContainer.DbUserId)
-      userQuery := fmt.Sprintf("SELECT login FROM %s.users WHERE id=?", config.DataBase)
-      row = db.QueryRow(userQuery, newContainer.DbUserId)
-      err = row.Scan(&newContainer.SshUser)
-      if err != nil {
-        log.Fatal(err)
-      }
-      log.Printf("User is ?", newContainer.SshUser)
-      log.Printf("Setup complete, took ?", time.Since(timerSetup))
-      timerDocker := time.Now()
-      // We have the details we need to create a container now.
-      cmdvars := []string{newContainer.SshUser, newContainer.SshKey}
-      containerConfig := &dockerclient.ContainerConfig{
-        Image: "sshsession",
-        Cmd: cmdvars,
-        //ExposedPorts: ports,
-      }
-      startConfig := &dockerclient.StartConfig{PublishAllPorts: true}
-
-      // Connect to internal socket, create the container
-      docker, _ := dockerclient.NewDockerClient("unix:///var/run/docker.sock")
-      newContainer.DockerId, err = docker.CreateContainer(containerConfig)
-      if err != nil {
-        log.Fatal(err)
-      }
-      log.Printf("Container ID is ?", newContainer.DockerId)
-
-      // Start the actual container
-      err = docker.StartContainer(newContainer.DockerId, startConfig)
-      if err != nil {
-        log.Fatal(err)
-      }
-      log.Printf("Docker Init complete, took ?", time.Since(timerDocker))
-      log.Printf("Docker post and return to webapp start")
-      timerReturn := time.Now()
-      // Get the hostport info
-      containerInfo, err := docker.InspectContainer(newContainer.DockerId)
-      if err != nil {
-        log.Fatal(err)
-      }
-      newContainer.SshPort = containerInfo.NetworkSettings.Ports["22/tcp"][0].HostPort
-
-      // Return the docker container info
-      webOutput, err := json.Marshal(newContainer)
-      fmt.Fprintf(w, string(webOutput))
-      fmt.Println(string(webOutput))
-      log.Printf("Return to webapp took ?, total process was ?", time.Since(timerReturn), time.Since(timerTotal))
-
-    } else {
-      fmt.Println("unable to unmarshall the JSON", jsonInputReturn)
+    db, err := sql.Open("mysql", dataString)
+    if err != nil {
+      log.Fatal(err)
     }
+    log.Print("Connected DB")
+      
+    // Query for Key
+    log.Printf("Querying for Key ID ", newContainer.DbKeyId)
+    keyQuery := fmt.Sprintf("SELECT sshkey FROM %s.keys WHERE id=?", config.DataBase)
+    row := db.QueryRow(keyQuery, newContainer.DbKeyId)
+    err = row.Scan(&newContainer.SshKey)
+    if err != nil {
+      log.Fatal(err)
+    }
+    log.Printf("Key is ?", newContainer.SshKey)
+
+    // Query for Username
+    log.Printf("Querying for Username ", newContainer.DbUserId)
+    userQuery := fmt.Sprintf("SELECT login FROM %s.users WHERE id=?", config.DataBase)
+    row = db.QueryRow(userQuery, newContainer.DbUserId)
+    err = row.Scan(&newContainer.SshUser)
+    if err != nil {
+      log.Fatal(err)
+    }
+    log.Printf("User is ?", newContainer.SshUser)
+    log.Printf("Setup complete, took ?", time.Since(timerSetup))
+    timerDocker := time.Now()
+    // We have the details we need to create a container now.
+    cmdvars := []string{newContainer.SshUser, newContainer.SshKey}
+    containerConfig := &dockerclient.ContainerConfig{
+      Image: "sshsession",
+      Cmd: cmdvars,
+      //ExposedPorts: ports,
+    }
+    startConfig := &dockerclient.HostConfig{PublishAllPorts: true}
+
+    // Connect to internal socket, create the container
+    docker, _ := dockerclient.NewDockerClient("unix:///var/run/docker.sock", nil)
+    newContainer.DockerId, err = docker.CreateContainer(containerConfig, randomdata.SillyName())
+    if err != nil {
+      log.Fatal(err)
+    }
+    log.Printf("Container ID is ?", newContainer.DockerId)
+
+    // Start the actual container
+    err = docker.StartContainer(newContainer.DockerId, startConfig)
+    if err != nil {
+      log.Fatal(err)
+    }
+    log.Printf("Docker Init complete, took ?", time.Since(timerDocker))
+    log.Printf("Docker post and return to webapp start")
+    timerReturn := time.Now()
+    // Get the hostport info
+    containerInfo, err := docker.InspectContainer(newContainer.DockerId)
+    if err != nil {
+      log.Fatal(err)
+    }
+    newContainer.SshPort = containerInfo.NetworkSettings.Ports["22/tcp"][0].HostPort
+
+    // Return the docker container info
+    webOutput, err := json.Marshal(newContainer)
+    fmt.Fprintf(w, string(webOutput))
+    fmt.Println(string(webOutput))
+    log.Printf("Return to webapp took ?, total process was ?", time.Since(timerReturn), time.Since(timerTotal))
+
+  } else {
+    fmt.Println("unable to unmarshall the JSON", jsonInputReturn)
   }
 }
 
 func DeleteContainer(w http.ResponseWriter, r *http.Request) {
   p := make([]byte, r.ContentLength)
-  _, httpReadReturn := r.Body.Read(p)
-  if httpReadReturn == nil {
-    timerDelTotal := time.Now()
-    timerDelete := time.Now()
-    // Create a variable for our new container info, unmarshall
-    var stopContainer Container
-    jsonInputReturn := json.Unmarshal(p, &stopContainer)
-    if jsonInputReturn == nil {
-      docker, _ := dockerclient.NewDockerClient("unix:///var/run/docker.sock")
-      log.Println("Killing ?", stopContainer.DockerId)
-      err := docker.KillContainer(stopContainer.DockerId)
-      log.Printf("Delete took ?", time.Since(timerDelete))
-      if err != nil {
-        log.Fatal(err)
-      }
-      err = docker.RemoveContainer(stopContainer.DockerId)
-      if err != nil {
-        log.Fatal(err)
-      }
-      fmt.Fprintf(w, "{\"result\":\"success\"}")
-      log.Printf("Delete Process took ?", time.Since(timerDelTotal))
+  r.Body.Read(p)
+  timerDelTotal := time.Now()
+  timerDelete := time.Now()
+  // Create a variable for our new container info, unmarshall
+  var stopContainer Container
+  jsonInputReturn := json.Unmarshal(p, &stopContainer)
+  if jsonInputReturn == nil {
+    docker, _ := dockerclient.NewDockerClient("unix:///var/run/docker.sock", nil)
+    log.Println("Killing ?", stopContainer.DockerId)
+    err := docker.KillContainer(stopContainer.DockerId, "SIGKILL")
+    log.Printf("Delete took ?", time.Since(timerDelete))
+    if err != nil {
+      log.Fatal(err)
     }
+    err = docker.RemoveContainer(stopContainer.DockerId, true, true)
+    if err != nil {
+      log.Fatal(err)
+    }
+    fmt.Fprintf(w, "{\"result\":\"success\"}")
+    log.Printf("Delete Process took ?", time.Since(timerDelTotal))
   }
 }
