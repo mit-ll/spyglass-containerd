@@ -31,6 +31,6 @@ This code could use:
 ## Disclaimer
 DISTRIBUTION STATEMENT A. Approved for public release: distribution unlimited.
 
-This material is based upon work supported by the Under Secretary of Defense for Research and Engineering under Air Force Contract No. FA8721-05-C-0002 and/or FA8702-15-D-0001. Any opinions, findings, conclusions or recommendations expressed in this material are those of the author(s) and do not necessarily reflect the views of the Under Secretary of Defense for Research and Engineering.
+This material is based upon work supported by the Under Secretary of Defense for Research and Engineering under Air Force Contract No. FA8721-05-C-0002. Any opinions, findings, conclusions or recommendations expressed in this material are those of the author(s) and do not necessarily reflect the views of the Under Secretary of Defense for Research and Engineering.
 
 The software/firmware is provided to you on an As-Is basis
